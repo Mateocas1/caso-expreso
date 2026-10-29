@@ -1,0 +1,65 @@
+"""Renders the run summary for the operations team as Markdown."""
+from __future__ import annotations
+
+from collections import Counter
+from datetime import datetime
+
+from expreso_bridge.upload import Outcome, UploadResult
+
+
+def render_run_report(
+    results: list[UploadResult],
+    *,
+    export_name: str,
+    export_total: int,
+    generated_at: datetime,
+) -> str:
+    counts = Counter(result.outcome for result in results)
+    needs_action = [result for result in results if result.outcome.needs_action]
+    no_action = [result for result in results if not result.outcome.needs_action]
+
+    lines = [
+        "# Resumen de corrida · Expreso Andino",
+        "",
+        f"- Export: `{export_name}`",
+        f"- Corrida: {generated_at:%Y-%m-%d %H:%M:%S}",
+        f"- Remitos en el export: {export_total} · para Expreso Andino: {len(results)}",
+        "",
+        "| Resultado | Cantidad |",
+        "| --- | ---: |",
+    ]
+    lines.extend(f"| {outcome.value} | {counts[outcome]} |" for outcome in Outcome)
+
+    lines.extend([
+        "",
+        f"## Requieren acción ({len(needs_action)})",
+        "",
+        "- **Rechazado**: corregir el dato en el sistema de LogiSur y volver a correr.",
+        "- **Falló**: error del lado del expreso; volver a correr (es seguro, no duplica envíos).",
+        "",
+    ])
+    lines.extend(_table(needs_action, ["Remito", "Destinatario", "Resultado", "Motivo", "Observaciones"], _action_row))
+
+    lines.extend(["", f"## Sin acción pendiente ({len(no_action)})", ""])
+    lines.extend(_table(no_action, ["Remito", "Destinatario", "Resultado", "Tracking", "Detalle"], _done_row))
+    return "\n".join(lines) + "\n"
+
+
+def _table(results: list[UploadResult], headers: list[str], to_row) -> list[str]:
+    if not results:
+        return ["_Ninguno._"]
+    rows = [headers, ["---"] * len(headers)]
+    rows.extend(to_row(result) for result in results)
+    return ["| " + " | ".join(_cell(value) for value in row) + " |" for row in rows]
+
+
+def _action_row(result: UploadResult) -> list[str]:
+    return [result.remito_number, result.recipient, result.outcome.value, result.detail, result.observations]
+
+
+def _done_row(result: UploadResult) -> list[str]:
+    return [result.remito_number, result.recipient, result.outcome.value, result.tracking_id, result.detail]
+
+
+def _cell(value: str) -> str:
+    return value.replace("|", "\\|").replace("\n", " ")
