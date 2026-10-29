@@ -20,6 +20,7 @@ python3 -m expreso_bridge upload kit/remitos_2026-09-30.json
 
 # Opcional: envíos atrasados a una fecha
 python3 -m expreso_bridge overdue kit/remitos_2026-09-30.json --today 2026-10-03
+# -> lo imprime por pantalla; para guardarlo: > reports/atrasados_2026-10-03.md
 ```
 
 Códigos de salida de `upload`, pensados para una corrida programada:
@@ -28,7 +29,7 @@ Códigos de salida de `upload`, pensados para una corrida programada:
 | --- | --- |
 | `0` | Todo cargado o ya existente. Nada que hacer. |
 | `1` | La corrida terminó, pero hay remitos rechazados o fallidos: alguien tiene que mirar el resumen. |
-| `2` | No se pudo correr: falta la API key, la key es inválida o la API no responde. |
+| `2` | No se pudo correr: no se puede leer el export, falta la API key, la key es inválida o la API no responde. |
 
 Tests (incluyen una corrida de punta a punta contra la API de prueba, que levantan solos):
 
@@ -85,8 +86,8 @@ Las reglas de negocio (bultos ≥ 1, campos obligatorios, etc.) no se duplican: 
 ## Errores de la API e idempotencia
 
 - **`409` ya existe**: `external_ref` (el número de remito) es único en la API. Por eso volver a correr no duplica: lo que ya está vuelve como "Ya existía" con su tracking.
-- **`500` / `503` o sin conexión**: se reintenta hasta 4 veces con espera exponencial (0,5 s, 1 s, 2 s). Reintentar un POST es seguro por la misma unicidad de `external_ref`.
-- **Error y después `409`**: si un intento devuelve `5xx` pero la API igual guardó el envío, el reintento recibe `409`. Ese caso se informa como "Cargado" (lo creó esta corrida), no como "Ya existía". Pasa en la corrida de prueba.
+- **`500` / `503` o sin conexión**: hasta 4 intentos (3 reintentos) con espera exponencial (0,5 s, 1 s, 2 s). Reintentar un POST es seguro por la misma unicidad de `external_ref`.
+- **Error y después `409`**: si un intento devuelve `5xx` pero la API igual guardó el envío, el reintento recibe `409`. Ese caso se informa como "Cargado" (casi seguro lo creó esta corrida), no como "Ya existía". Pasa en la corrida de prueba. El caso borde: si el envío ya existía de antes y además el primer intento dio `5xx`, también se vería como "Cargado"; el tracking es el correcto igual.
 - **`401`**: corta toda la corrida. Es un problema de configuración, no de un remito.
 - **`422`**: el remito queda rechazado con el detalle de la API.
 
@@ -97,7 +98,7 @@ No hace falta guardar estado local para ser idempotente: la API ya garantiza la 
 - `BA` y `Bs. As.` son la provincia de Buenos Aires (las localidades del export lo confirman: Pilar, Mar del Plata). `CABA` y `Capital Federal` son la Ciudad Autónoma de Buenos Aires.
 - `Exp. Andino` es Expreso Andino.
 - Si un remito aparece repetido, se toma la primera aparición. En el export los dos registros son idénticos.
-- Un peso con separador de miles (`1.234,5`) se rechaza en vez de adivinarlo. No aparece en los datos.
+- Un peso con separador de miles (`1.234,5`) o no numérico (`nan`, `inf`) se rechaza en vez de adivinarlo. Un texto con punto (`"1.234"`) se lee como decimal (1,234 kg). Ninguno de estos casos aparece en los datos.
 - Un envío está atrasado si no está `DELIVERED` y su fecha estimada es anterior a la fecha de referencia. Uno que vence ese mismo día todavía no cuenta como atrasado. `EXCEPTION` cuenta como no entregado.
 - Para los atrasados se consultan los remitos de Expreso Andino del export indicado.
 - Los textos para operaciones (resumen, ayuda del CLI) están en castellano; el código, en inglés.
