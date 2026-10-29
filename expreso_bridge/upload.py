@@ -6,23 +6,14 @@ from dataclasses import dataclass
 from enum import Enum
 
 from expreso_bridge.client import TRANSIENT_STATUSES, ApiResponse, ApiUnavailable, ExpresoClient
-from expreso_bridge.remitos import InvalidRemito, build_province_lookup, to_shipment
+from expreso_bridge.remitos import (
+    EXPORT_FIELD_BY_API_FIELD,
+    InvalidRemito,
+    build_province_lookup,
+    to_shipment,
+)
 
 logger = logging.getLogger(__name__)
-
-# API fields named as they appear in LogiSur's export, which is where operations fixes them.
-EXPORT_FIELD_BY_API_FIELD = {
-    "external_ref": "nro_remito",
-    "recipient.name": "destinatario.razon_social",
-    "recipient.street": "destinatario.direccion",
-    "recipient.city": "destinatario.localidad",
-    "recipient.province": "destinatario.provincia",
-    "recipient.zip_code": "destinatario.codigo_postal",
-    "packages": "bultos",
-    "weight_kg": "peso_kg",
-    "declared_value": "valor_declarado",
-    "service": "servicio",
-}
 
 
 class Outcome(Enum):
@@ -53,16 +44,30 @@ def upload_remitos(remitos: list[dict], client: ExpresoClient) -> list[UploadRes
     results = []
     for remito in remitos:
         if remito["nro_remito"] in uploaded_numbers:
-            result = _result(remito, Outcome.DUPLICATE, detail="se procesó solo la primera aparición")
+            result = _result(
+                remito,
+                Outcome.DUPLICATE,
+                detail="se procesó solo la primera aparición",
+            )
         else:
             uploaded_numbers.add(remito["nro_remito"])
             result = _upload_one(remito, province_lookup, client)
-        logger.info("%s %s %s %s", result.remito_number, result.outcome.value, result.tracking_id, result.detail)
+        logger.info(
+            "%s %s %s %s",
+            result.remito_number,
+            result.outcome.value,
+            result.tracking_id,
+            result.detail,
+        )
         results.append(result)
     return results
 
 
-def _upload_one(remito: dict, province_lookup: dict[str, str], client: ExpresoClient) -> UploadResult:
+def _upload_one(
+    remito: dict,
+    province_lookup: dict[str, str],
+    client: ExpresoClient,
+) -> UploadResult:
     try:
         shipment = to_shipment(remito, province_lookup)
     except InvalidRemito as error:
@@ -79,7 +84,8 @@ def _classify(remito: dict, response: ApiResponse) -> UploadResult:
     if response.status == 201:
         return _result(remito, Outcome.CREATED, tracking_id)
     if response.status == 409 and response.attempts > 1:
-        # An earlier attempt got a server error but the shipment was stored anyway.
+        # A failed earlier attempt may still have stored the shipment, so the retry
+        # gets 409. Most likely this run created it, which "already existed" would hide.
         return _result(
             remito,
             Outcome.CREATED,
@@ -89,14 +95,22 @@ def _classify(remito: dict, response: ApiResponse) -> UploadResult:
     if response.status == 409:
         return _result(remito, Outcome.ALREADY_EXISTS, tracking_id)
     if response.status == 422:
-        return _result(remito, Outcome.REJECTED, detail=_describe_validation_errors(response.body))
+        return _result(
+            remito,
+            Outcome.REJECTED,
+            detail=_describe_validation_errors(response.body),
+        )
     if response.status in TRANSIENT_STATUSES:
         return _result(
             remito,
             Outcome.FAILED,
             detail=f"la API respondió {response.status} en los {response.attempts} intentos",
         )
-    return _result(remito, Outcome.FAILED, detail=f"respuesta inesperada de la API ({response.status}): {response.body}")
+    return _result(
+        remito,
+        Outcome.FAILED,
+        detail=f"respuesta inesperada de la API ({response.status}): {response.body}",
+    )
 
 
 def _describe_validation_errors(body: dict) -> str:
@@ -107,7 +121,12 @@ def _describe_validation_errors(body: dict) -> str:
     return "; ".join(problems) or "la API rechazó los datos sin detalle"
 
 
-def _result(remito: dict, outcome: Outcome, tracking_id: str = "", detail: str = "") -> UploadResult:
+def _result(
+    remito: dict,
+    outcome: Outcome,
+    tracking_id: str = "",
+    detail: str = "",
+) -> UploadResult:
     recipient = remito.get("destinatario") or {}
     return UploadResult(
         remito_number=remito["nro_remito"],

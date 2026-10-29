@@ -60,11 +60,21 @@ class UploadAgainstMockApiTest(unittest.TestCase):
             }),
         )
 
+    def test_rejections_name_the_field_as_it_appears_in_the_export(self):
+        results = upload_remitos(self.andino_remitos, self.client)
+
+        details = {result.detail for result in results if result.outcome is Outcome.REJECTED}
+        self.assertIn("destinatario.codigo_postal: required non-empty string", details)
+
     def test_second_run_creates_nothing_new(self):
         first_run = upload_remitos(self.andino_remitos, self.client)
         second_run = upload_remitos(self.andino_remitos, self.client)
 
-        tracking_by_remito = {r.remito_number: r.tracking_id for r in first_run if r.tracking_id}
+        tracking_by_remito = {
+            result.remito_number: result.tracking_id
+            for result in first_run
+            if result.tracking_id
+        }
         self.assertNotIn(Outcome.CREATED, {result.outcome for result in second_run})
         for result in second_run:
             if result.outcome is Outcome.ALREADY_EXISTS:
