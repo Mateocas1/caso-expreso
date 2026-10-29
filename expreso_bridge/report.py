@@ -1,8 +1,8 @@
-"""Renders the run summary for the operations team as Markdown."""
+"""Renders the reports for the operations team as Markdown."""
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime
+from datetime import date, datetime
 
 from expreso_bridge.upload import Outcome, UploadResult
 
@@ -45,12 +45,22 @@ def render_run_report(
     return "\n".join(lines) + "\n"
 
 
-def _table(results: list[UploadResult], headers: list[str], to_row) -> list[str]:
-    if not results:
+def render_overdue_report(shipments: list[dict], *, today: date) -> str:
+    lines = [f"# Envíos atrasados al {today:%Y-%m-%d} ({len(shipments)})", ""]
+    lines.extend(_table(shipments, ["Remito", "Tracking", "Estado", "Entrega estimada"], _overdue_row))
+    return "\n".join(lines) + "\n"
+
+
+def _table(items: list, headers: list[str], to_row) -> list[str]:
+    if not items:
         return ["_Ninguno._"]
     rows = [headers, ["---"] * len(headers)]
-    rows.extend(to_row(result) for result in results)
+    rows.extend(to_row(item) for item in items)
     return ["| " + " | ".join(_cell(value) for value in row) + " |" for row in rows]
+
+
+def _overdue_row(shipment: dict) -> list[str]:
+    return [shipment["external_ref"], shipment["tracking_id"], shipment["status"], shipment["estimated_delivery"]]
 
 
 def _action_row(result: UploadResult) -> list[str]:
