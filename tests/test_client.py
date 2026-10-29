@@ -1,5 +1,6 @@
 import socket
 import unittest
+from http.client import IncompleteRead
 
 from expreso_bridge.client import ApiUnavailable, AuthenticationError, ExpresoClient
 
@@ -15,7 +16,10 @@ class ScriptedClient(ExpresoClient):
 
     def _send(self, method, path, payload):
         self.calls += 1
-        return self._responses.pop(0)
+        response = self._responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
     def _record_sleep(self, seconds):
         self.sleeps.append(seconds)
@@ -37,6 +41,13 @@ class RetryTest(unittest.TestCase):
 
         self.assertEqual((response.status, response.attempts), (500, 4))
 
+    def test_retries_a_response_cut_off_mid_transfer(self):
+        client = ScriptedClient([IncompleteRead(b""), (201, {"tracking_id": "AND1"})])
+
+        response = client.create_shipment({"external_ref": "R-1"})
+
+        self.assertEqual((response.status, response.attempts), (201, 2))
+
     def test_does_not_retry_client_errors(self):
         client = ScriptedClient([(422, {"error": "validation_error"})])
 
@@ -56,7 +67,9 @@ class ConnectionTest(unittest.TestCase):
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))
             free_port = probe.getsockname()[1]
-        client = ExpresoClient(f"http://127.0.0.1:{free_port}", "key", max_attempts=2, sleep=lambda _: None)
+        client = ExpresoClient(
+            f"http://127.0.0.1:{free_port}", "key", max_attempts=2, sleep=lambda _: None
+        )
 
         with self.assertRaises(ApiUnavailable):
             client.list_provinces()

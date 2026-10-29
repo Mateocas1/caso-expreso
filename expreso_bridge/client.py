@@ -4,7 +4,9 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
-from urllib.error import HTTPError, URLError
+from http.client import HTTPException
+from typing import Callable
+from urllib.error import HTTPError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
@@ -39,7 +41,7 @@ class ExpresoClient:
         max_attempts: int = 4,
         backoff_seconds: float = 0.5,
         timeout_seconds: float = 10.0,
-        sleep=time.sleep,
+        sleep: Callable[[float], None] = time.sleep,
     ):
         self._base_url = base_url.rstrip("/")
         self._headers = {
@@ -80,9 +82,10 @@ class ExpresoClient:
             is_last_attempt = attempt == self._max_attempts
             try:
                 status, body = self._send(method, path, payload)
-            except OSError as error:
+            except (OSError, HTTPException) as error:
                 if is_last_attempt:
-                    raise ApiUnavailable(f"sin conexión con la API tras {attempt} intentos: {error}") from error
+                    message = f"sin conexión con la API tras {attempt} intentos: {error}"
+                    raise ApiUnavailable(message) from error
             else:
                 if status == 401:
                     raise AuthenticationError("la API rechazó la API key (401)")

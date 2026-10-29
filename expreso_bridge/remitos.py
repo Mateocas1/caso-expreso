@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import unicodedata
 from pathlib import Path
 
@@ -17,6 +18,21 @@ PROVINCE_ALIASES = {
     "cba": "Córdoba",
     "caba": "Ciudad Autónoma de Buenos Aires",
     "capital federal": "Ciudad Autónoma de Buenos Aires",
+}
+
+# Inverse of to_shipment, so API errors name the field operations fixes in the export.
+EXPORT_FIELD_BY_API_FIELD = {
+    "external_ref": "nro_remito",
+    "recipient.name": "destinatario.razon_social",
+    "recipient.street": "destinatario.direccion",
+    "recipient.city": "destinatario.localidad",
+    "recipient.province": "destinatario.provincia",
+    "recipient.zip_code": "destinatario.codigo_postal",
+    "recipient.phone": "destinatario.telefono",
+    "packages": "bultos",
+    "weight_kg": "peso_kg",
+    "declared_value": "valor_declarado",
+    "service": "servicio",
 }
 
 
@@ -95,7 +111,7 @@ def to_shipment(remito: dict, province_lookup: dict[str, str]) -> dict:
     return shipment
 
 
-def parse_decimal(value) -> float | None:
+def parse_decimal(value: object) -> float | None:
     """Accepts numbers and strings with a decimal comma ('145,1').
 
     Strings with thousands separators ('1.234,5') are rejected rather than guessed.
@@ -103,14 +119,16 @@ def parse_decimal(value) -> float | None:
     if isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
+        number = float(value)
+    elif isinstance(value, str):
         try:
-            return float(value.strip().replace(",", "."))
+            number = float(value.strip().replace(",", "."))
         except ValueError:
             return None
-    return None
+    else:
+        return None
+    return number if math.isfinite(number) else None
 
 
-def _clean(value) -> str:
+def _clean(value: str | None) -> str:
     return (value or "").strip()

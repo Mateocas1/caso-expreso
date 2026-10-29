@@ -40,7 +40,14 @@ def make_remito(**overrides):
 
 class IsAndinoTest(unittest.TestCase):
     def test_accepts_every_spelling_found_in_the_export(self):
-        for carrier in ["EXPRESO ANDINO", "Expreso Andino", "EXPRESO ANDINO ", "Exp. Andino", "expreso andino"]:
+        spellings = [
+            "EXPRESO ANDINO",
+            "Expreso Andino",
+            "EXPRESO ANDINO ",
+            "Exp. Andino",
+            "expreso andino",
+        ]
+        for carrier in spellings:
             with self.subTest(carrier=carrier):
                 self.assertTrue(is_andino(make_remito(transportista=carrier)))
 
@@ -57,7 +64,7 @@ class ParseDecimalTest(unittest.TestCase):
         self.assertEqual(parse_decimal("145,1"), 145.1)
 
     def test_rejects_values_it_cannot_read_unambiguously(self):
-        for value in ["1.234,5", "abc", "", None, True]:
+        for value in ["1.234,5", "abc", "", "nan", "inf", float("nan"), None, True]:
             with self.subTest(value=value):
                 self.assertIsNone(parse_decimal(value))
 
@@ -100,10 +107,12 @@ class ToShipmentTest(unittest.TestCase):
             with self.subTest(raw=raw):
                 remito = make_remito()
                 remito["destinatario"]["provincia"] = raw
-                self.assertEqual(to_shipment(remito, self.provinces)["recipient"]["province"], official)
+                recipient = to_shipment(remito, self.provinces)["recipient"]
+                self.assertEqual(recipient["province"], official)
 
     def test_maps_urgent_service_to_express(self):
-        self.assertEqual(to_shipment(make_remito(servicio="URGENTE"), self.provinces)["service"], "express")
+        shipment = to_shipment(make_remito(servicio="URGENTE"), self.provinces)
+        self.assertEqual(shipment["service"], "express")
 
     def test_trims_text_and_omits_empty_phone(self):
         remito = make_remito()
