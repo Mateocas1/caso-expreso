@@ -9,8 +9,8 @@ from datetime import date, datetime
 from pathlib import Path
 
 from expreso_bridge.client import ApiError, ExpresoClient
-from expreso_bridge.remitos import is_andino, load_remitos
 from expreso_bridge.overdue import find_overdue
+from expreso_bridge.remitos import is_andino, load_remitos
 from expreso_bridge.report import render_overdue_report, render_run_report
 from expreso_bridge.upload import upload_remitos
 
@@ -25,6 +25,12 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
+    try:
+        remitos = load_remitos(args.export)
+    except (OSError, ValueError) as error:
+        print(f"No se pudo leer el export {args.export}: {error}", file=sys.stderr)
+        return EXIT_CANNOT_RUN
+
     api_key = os.environ.get("EXPRESO_API_KEY")
     if not api_key:
         print("Falta la variable de entorno EXPRESO_API_KEY.", file=sys.stderr)
@@ -33,22 +39,26 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.command == "overdue":
-            return _overdue(args.export, args.today, client)
-        return _upload(args.export, args.reports_dir, client)
+            return _overdue(remitos, args.today, client)
+        return _upload(remitos, args.export.name, args.reports_dir, client)
     except ApiError as error:
         print(f"No se pudo completar la corrida: {error}", file=sys.stderr)
         return EXIT_CANNOT_RUN
 
 
-def _upload(export_path: Path, reports_dir: Path, client: ExpresoClient) -> int:
-    remitos = load_remitos(export_path)
+def _upload(
+    remitos: list[dict],
+    export_name: str,
+    reports_dir: Path,
+    client: ExpresoClient,
+) -> int:
     andino_remitos = [remito for remito in remitos if is_andino(remito)]
     results = upload_remitos(andino_remitos, client)
 
     generated_at = datetime.now()
     report = render_run_report(
         results,
-        export_name=export_path.name,
+        export_name=export_name,
         export_total=len(remitos),
         generated_at=generated_at,
     )
@@ -61,9 +71,10 @@ def _upload(export_path: Path, reports_dir: Path, client: ExpresoClient) -> int:
     return EXIT_NEEDS_ACTION if needs_action else EXIT_OK
 
 
-def _overdue(export_path: Path, today: date, client: ExpresoClient) -> int:
-    external_refs = [remito["nro_remito"] for remito in load_remitos(export_path) if is_andino(remito)]
-    print(render_overdue_report(find_overdue(external_refs, client, today), today=today), end="")
+def _overdue(remitos: list[dict], today: date, client: ExpresoClient) -> int:
+    external_refs = [remito["nro_remito"] for remito in remitos if is_andino(remito)]
+    overdue_shipments = find_overdue(external_refs, client, today)
+    print(render_overdue_report(overdue_shipments, today=today), end="")
     return EXIT_OK
 
 
@@ -74,13 +85,29 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     )
     commands = parser.add_subparsers(dest="command", required=True)
 
-    upload = commands.add_parser("upload", help="cargar los remitos de Expreso Andino de un export")
+    upload = commands.add_parser(
+        "upload",
+        help="cargar los remitos de Expreso Andino de un export",
+    )
     upload.add_argument("export", type=Path, help="archivo JSON exportado por LogiSur")
-    upload.add_argument("--reports-dir", type=Path, default=Path("reports"), help="carpeta del resumen (default: reports)")
+    upload.add_argument(
+        "--reports-dir",
+        type=Path,
+        default=Path("reports"),
+        help="carpeta del resumen (default: reports)",
+    )
 
-    overdue = commands.add_parser("overdue", help="listar envíos no entregados con fecha estimada vencida")
+    overdue = commands.add_parser(
+        "overdue",
+        help="listar envíos no entregados con fecha estimada vencida",
+    )
     overdue.add_argument("export", type=Path, help="archivo JSON exportado por LogiSur")
-    overdue.add_argument("--today", type=date.fromisoformat, default=date.today(), help="fecha de referencia (YYYY-MM-DD)")
+    overdue.add_argument(
+        "--today",
+        type=date.fromisoformat,
+        default=date.today(),
+        help="fecha de referencia (YYYY-MM-DD, default: hoy)",
+    )
     return parser.parse_args(argv)
 
 
