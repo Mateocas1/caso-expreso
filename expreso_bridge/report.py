@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Callable
 from datetime import date, datetime
-from typing import Callable, TypeVar
+from typing import TypeVar
 
 from expreso_bridge.upload import Outcome, UploadResult
 
