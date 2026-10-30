@@ -29,7 +29,7 @@ Códigos de salida de `upload`, pensados para una corrida programada:
 | --- | --- |
 | `0` | Todo cargado o ya existente. Nada que hacer. |
 | `1` | La corrida terminó, pero hay remitos rechazados o fallidos: alguien tiene que mirar el resumen. |
-| `2` | No se pudo correr: no se puede leer el export, falta la API key, la key es inválida o la API no responde. |
+| `2` | No se pudo correr: no se puede leer el export, falta la API key, la key es inválida o la API no responde al arrancar. |
 
 Tests (incluyen una corrida de punta a punta contra la API de prueba, que levantan solos):
 
@@ -55,6 +55,9 @@ expreso_bridge/
   report.py     resumen en Markdown para operaciones
   overdue.py    envíos atrasados (opcional)
   __main__.py   línea de comandos
+tests/          tests unitarios y de punta a punta
+kit/            lo que vino con el challenge, sin modificar: export, API de prueba y su documentación
+reports/        resúmenes generados contra la API de prueba
 ```
 
 La transformación es lógica pura y está separada de la red: se testea sin levantar nada y es donde están casi todas las reglas del negocio.
@@ -109,7 +112,7 @@ No hace falta guardar estado local para ser idempotente: la API ya garantiza la 
 - **Secretos** en un gestor (Vault, AWS Secrets Manager, etc.), no en variables exportadas a mano.
 - **Volumen**: hoy las cargas van una por una. Con miles de remitos por día, primero conviene paralelizar con un pool chico de workers (`concurrent.futures`), respetando el rate limit del expreso, y reusar conexiones HTTP (keep-alive, por ejemplo `requests.Session`). El diseño ya lo permite: cada remito se procesa de forma independiente y la idempotencia la garantiza la API. Si el export pasara a pesar cientos de MB, se puede leer en streaming.
 - **Atrasados**: hoy son 2 llamadas por envío (buscar por referencia y pedir el estado). En producción guardaría el `tracking_id` de cada carga (una tabla chica o una base) para no buscarlo, y le pediría al expreso un endpoint de consulta en lote o webhooks de estado.
-- **API caída**: si no responde, hoy cada remito agota sus reintentos. Cortaría la corrida después de varios fallos seguidos (circuit breaker) para no esperar de más.
+- **API caída a mitad de corrida**: hoy cada remito pendiente agota sus reintentos (si está caída desde el inicio, la corrida corta enseguida). Cortaría la corrida después de varios fallos seguidos (circuit breaker) para no esperar de más.
 - **Calidad del dato en origen**: los rechazos se repiten todos los días hasta que se corrige el sistema de LogiSur. Pasaría las abreviaturas de provincias y el formato del peso como pedido de mejora al equipo dueño del export.
 - **Observabilidad**: logs estructurados (JSON) y métricas de cargados, rechazados y fallidos por corrida.
 - **Resumen en CSV** además del Markdown, si operaciones lo quiere filtrar en una planilla.
